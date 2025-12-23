@@ -495,7 +495,7 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
                             className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
                           >
                             {leftTable?.columns.map((col) => (
-                              <option key={col.name} value={`${join.leftTable}.${col.name}`}>
+                              <option key={col.name} value={col.name}>
                                 {col.name}
                               </option>
                             ))}
@@ -545,7 +545,7 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
                             className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
                           >
                             {rightTable?.columns.map((col) => (
-                              <option key={col.name} value={`${join.rightTable}.${col.name}`}>
+                              <option key={col.name} value={col.name}>
                                 {col.name}
                               </option>
                             ))}
@@ -556,7 +556,7 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
                       {/* Join Visualization */}
                       <div className="mt-3 p-2 bg-dark-panel rounded border border-blue-500/30">
                         <p className="text-xs font-mono text-blue-300">
-                          {join.leftTable}.{join.leftColumn.split('.').pop()} = {join.rightTable}.{join.rightColumn.split('.').pop()}
+                          {join.leftTable}.{join.leftColumn} = {join.rightTable}.{join.rightColumn}
                         </p>
                       </div>
                     </div>

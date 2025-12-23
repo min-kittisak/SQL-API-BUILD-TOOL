@@ -53,6 +53,36 @@ type APITest = {
   responseSize?: number
 }
 
+type SwaggerSpec = {
+  openapi?: string
+  swagger?: string
+  info: {
+    title: string
+    version: string
+  }
+  servers?: Array<{ url: string }>
+  paths: {
+    [path: string]: {
+      [method: string]: {
+        summary?: string
+        description?: string
+        parameters?: any[]
+        requestBody?: any
+        responses?: any
+      }
+    }
+  }
+  components?: any
+}
+
+type SwaggerEndpoint = {
+  id: string
+  path: string
+  method: string
+  summary: string
+  baseUrl: string
+}
+
 type Props = {
   onBack: () => void
 }
@@ -74,6 +104,14 @@ export default function APITester({ onBack }: Props) {
   const [testing, setTesting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [responseTab, setResponseTab] = useState<'body' | 'headers'>('body')
+  
+  // Swagger State
+  const [swaggerInputMode, setSwaggerInputMode] = useState<'url' | 'json'>('url')
+  const [swaggerUrl, setSwaggerUrl] = useState('https://localhost:7140/swagger/v1/swagger.json')
+  const [swaggerJson, setSwaggerJson] = useState('')
+  const [swaggerEndpoints, setSwaggerEndpoints] = useState<SwaggerEndpoint[]>([])
+  const [loadingSwagger, setLoadingSwagger] = useState(false)
+  const [swaggerError, setSwaggerError] = useState('')
   
   // Login API State
   const [loginEndpoint, setLoginEndpoint] = useState('https://localhost:7140/auth/login')
@@ -160,6 +198,79 @@ export default function APITester({ onBack }: Props) {
     setCurrentTest({
       ...currentTest,
       queryParams: currentTest.queryParams.filter((q) => q.id !== id),
+    })
+  }
+
+  // Parse Swagger Spec
+  const parseSwaggerSpec = (spec: SwaggerSpec) => {
+    const endpoints: SwaggerEndpoint[] = []
+    const baseUrl = spec.servers?.[0]?.url || ''
+    
+    Object.entries(spec.paths).forEach(([path, methods]) => {
+      Object.entries(methods).forEach(([method, details]) => {
+        if (['get', 'post', 'put', 'delete', 'patch'].includes(method.toLowerCase())) {
+          endpoints.push({
+            id: `${method.toUpperCase()}-${path}`,
+            path,
+            method: method.toUpperCase(),
+            summary: details.summary || `${method.toUpperCase()} ${path}`,
+            baseUrl,
+          })
+        }
+      })
+    })
+    
+    setSwaggerEndpoints(endpoints)
+    if (endpoints.length > 0) {
+      alert(`✓ โหลด ${endpoints.length} endpoints สำเร็จ`)
+    }
+  }
+
+  // Load Swagger from URL
+  const loadSwagger = async () => {
+    setLoadingSwagger(true)
+    setSwaggerError('')
+    try {
+      const response = await axios.get(swaggerUrl)
+      const spec: SwaggerSpec = response.data
+      parseSwaggerSpec(spec)
+    } catch (err: any) {
+      setSwaggerError(err.message || 'ไม่สามารถโหลด Swagger spec ได้')
+    } finally {
+      setLoadingSwagger(false)
+    }
+  }
+
+  // Load Swagger from JSON
+  const loadSwaggerJson = () => {
+    setLoadingSwagger(true)
+    setSwaggerError('')
+    try {
+      const spec: SwaggerSpec = JSON.parse(swaggerJson)
+      parseSwaggerSpec(spec)
+    } catch (err: any) {
+      setSwaggerError('Invalid JSON format')
+    } finally {
+      setLoadingSwagger(false)
+    }
+  }
+
+  // Select Swagger Endpoint
+  const selectSwaggerEndpoint = (endpointId: string) => {
+    const endpoint = swaggerEndpoints.find(e => e.id === endpointId)
+    if (!endpoint) return
+
+    setCurrentTest({
+      id: Date.now().toString(),
+      name: endpoint.summary,
+      method: endpoint.method as any,
+      endpoint: `${endpoint.baseUrl}${endpoint.path}`,
+      description: `From Swagger: ${endpoint.summary}`,
+      auth: currentTest.auth, // Keep current auth
+      headers: [{ id: '1', key: 'Content-Type', value: 'application/json', enabled: true }],
+      pathParams: [],
+      queryParams: [],
+      requestBody: '{}',
     })
   }
 
@@ -568,6 +679,105 @@ export default function APITester({ onBack }: Props) {
                   {loginMessage.text}
                 </div>
               )}
+            </div>
+
+            {/* Swagger Loader */}
+            <div className="bg-dark-bg rounded-lg p-4 border border-dark-border mt-4">
+              <h3 className="font-semibold mb-3 text-sm flex items-center gap-2">
+                <Upload className="w-4 h-4 text-orange-500" />
+                Load from Swagger
+              </h3>
+
+              <div className="space-y-3">
+                {/* Mode Selector */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSwaggerInputMode('url')}
+                    className={`flex-1 px-3 py-1.5 rounded text-xs ${
+                      swaggerInputMode === 'url'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-dark-bg text-gray-400 hover:bg-dark-hover'
+                    }`}
+                  >
+                    Load from URL
+                  </button>
+                  <button
+                    onClick={() => setSwaggerInputMode('json')}
+                    className={`flex-1 px-3 py-1.5 rounded text-xs ${
+                      swaggerInputMode === 'json'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-dark-bg text-gray-400 hover:bg-dark-hover'
+                    }`}
+                  >
+                    Paste JSON
+                  </button>
+                </div>
+
+                {swaggerInputMode === 'url' ? (
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Swagger URL</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={swaggerUrl}
+                        onChange={(e) => setSwaggerUrl(e.target.value)}
+                        placeholder="https://api.example.com/swagger.json"
+                        className="flex-1 bg-dark-bg border border-dark-border rounded px-3 py-1.5 text-sm font-mono"
+                      />
+                      <button
+                        onClick={loadSwagger}
+                        disabled={loadingSwagger}
+                        className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 rounded text-sm font-medium"
+                      >
+                        {loadingSwagger ? 'Loading...' : 'Load'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Paste Swagger JSON</label>
+                    <textarea
+                      value={swaggerJson}
+                      onChange={(e) => setSwaggerJson(e.target.value)}
+                      placeholder='{"openapi": "3.0.0", "info": {...}, "paths": {...}}'
+                      rows={4}
+                      className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-xs font-mono"
+                    />
+                    <button
+                      onClick={loadSwaggerJson}
+                      disabled={loadingSwagger}
+                      className="w-full mt-2 px-4 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 rounded text-sm font-medium"
+                    >
+                      {loadingSwagger ? 'Parsing...' : 'Parse JSON'}
+                    </button>
+                  </div>
+                )}
+
+                {swaggerError && (
+                  <div className="p-2 bg-red-900/30 text-red-400 border border-red-500/30 rounded text-xs">
+                    {swaggerError}
+                  </div>
+                )}
+
+                {swaggerEndpoints.length > 0 && (
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Select Endpoint ({swaggerEndpoints.length} available)
+                    </label>
+                    <select
+                      onChange={(e) => selectSwaggerEndpoint(e.target.value)}
+                      className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm"
+                    >
+                      <option value="">-- เลือก Endpoint --</option>
+                      {swaggerEndpoints.map(endpoint => (
+                        <option key={endpoint.id} value={endpoint.id}>
+                          {endpoint.method} {endpoint.path} - {endpoint.summary}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
