@@ -24,20 +24,33 @@ type QueryParam = {
   enabled: boolean
 }
 
+type AuthConfig = {
+  type: 'none' | 'bearer' | 'basic' | 'apikey'
+  token?: string
+  username?: string
+  password?: string
+  apiKey?: string
+  apiKeyName?: string
+  apiKeyIn?: 'header' | 'query'
+}
+
 type APITest = {
   id: string
   name: string
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   endpoint: string
   description: string
+  auth: AuthConfig
   headers: HeaderParam[]
   pathParams: PathParam[]
   queryParams: QueryParam[]
   requestBody: string
   response200?: any
   responseError?: any
+  responseHeaders?: Record<string, string>
   responseTime?: number
   statusCode?: number
+  responseSize?: number
 }
 
 type Props = {
@@ -52,6 +65,7 @@ export default function APITester({ onBack }: Props) {
     method: 'GET',
     endpoint: 'https://api.example.com/users',
     description: 'Test API endpoint',
+    auth: { type: 'none' },
     headers: [{ id: '1', key: 'Content-Type', value: 'application/json', enabled: true }],
     pathParams: [],
     queryParams: [],
@@ -59,6 +73,7 @@ export default function APITester({ onBack }: Props) {
   })
   const [testing, setTesting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [responseTab, setResponseTab] = useState<'body' | 'headers'>('body')
 
   // Header Management
   const addHeader = () => {
@@ -179,12 +194,31 @@ export default function APITester({ onBack }: Props) {
           headers[h.key] = h.value
         })
 
+      // Add Authorization based on auth type
+      if (currentTest.auth.type === 'bearer' && currentTest.auth.token) {
+        headers['Authorization'] = `Bearer ${currentTest.auth.token}`
+      } else if (currentTest.auth.type === 'basic' && currentTest.auth.username && currentTest.auth.password) {
+        const credentials = btoa(`${currentTest.auth.username}:${currentTest.auth.password}`)
+        headers['Authorization'] = `Basic ${credentials}`
+      } else if (currentTest.auth.type === 'apikey' && currentTest.auth.apiKey && currentTest.auth.apiKeyName) {
+        if (currentTest.auth.apiKeyIn === 'header') {
+          headers[currentTest.auth.apiKeyName] = currentTest.auth.apiKey
+        }
+      }
+
       const finalEndpoint = buildEndpoint()
+
+      // Add API Key to query params if needed
+      let urlWithApiKey = finalEndpoint
+      if (currentTest.auth.type === 'apikey' && currentTest.auth.apiKey && currentTest.auth.apiKeyName && currentTest.auth.apiKeyIn === 'query') {
+        const separator = urlWithApiKey.includes('?') ? '&' : '?'
+        urlWithApiKey += `${separator}${currentTest.auth.apiKeyName}=${currentTest.auth.apiKey}`
+      }
 
       // Make request
       const response = await axios({
         method: currentTest.method,
-        url: finalEndpoint,
+        url: urlWithApiKey,
         headers,
         data: ['POST', 'PUT', 'PATCH'].includes(currentTest.method)
           ? JSON.parse(currentTest.requestBody || '{}')
@@ -193,14 +227,19 @@ export default function APITester({ onBack }: Props) {
       })
 
       const responseTime = Date.now() - startTime
+      
+      // Calculate response size
+      const responseSize = new Blob([JSON.stringify(response.data)]).size
 
       // Update test with response
       const updatedTest = {
         ...currentTest,
         response200: response.status >= 200 && response.status < 300 ? response.data : undefined,
         responseError: response.status >= 400 ? response.data : undefined,
+        responseHeaders: response.headers as Record<string, string>,
         responseTime,
         statusCode: response.status,
+        responseSize,
       }
 
       setCurrentTest(updatedTest)
@@ -223,8 +262,10 @@ export default function APITester({ onBack }: Props) {
           code: error.code,
           details: error.response?.data || error.toString(),
         },
+        responseHeaders: error.response?.headers as Record<string, string>,
         responseTime,
         statusCode: error.response?.status || 0,
+        responseSize: error.response?.data ? new Blob([JSON.stringify(error.response.data)]).size : 0,
       }
 
       setCurrentTest(updatedTest)
@@ -260,6 +301,7 @@ export default function APITester({ onBack }: Props) {
       method: 'GET',
       endpoint: 'https://api.example.com/data',
       description: '',
+      auth: { type: 'none' },
       headers: [{ id: '1', key: 'Content-Type', value: 'application/json', enabled: true }],
       pathParams: [],
       queryParams: [],
@@ -384,6 +426,152 @@ export default function APITester({ onBack }: Props) {
             <p className="text-xs text-gray-400 mt-1">
               Preview: <code className="text-blue-400">{buildEndpoint()}</code>
             </p>
+          </div>
+
+          {/* Authorization */}
+          <div>
+            <label className="block text-sm font-bold mb-2">🔐 Authorization</label>
+            <div className="space-y-3">
+              <select
+                value={currentTest.auth.type}
+                onChange={(e) =>
+                  setCurrentTest({
+                    ...currentTest,
+                    auth: { type: e.target.value as any },
+                  })
+                }
+                className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm"
+              >
+                <option value="none">No Auth</option>
+                <option value="bearer">Bearer Token (JWT)</option>
+                <option value="basic">Basic Auth</option>
+                <option value="apikey">API Key</option>
+              </select>
+
+              {/* Bearer Token */}
+              {currentTest.auth.type === 'bearer' && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Token (JWT)</label>
+                  <textarea
+                    value={currentTest.auth.token || ''}
+                    onChange={(e) =>
+                      setCurrentTest({
+                        ...currentTest,
+                        auth: { ...currentTest.auth, token: e.target.value },
+                      })
+                    }
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm font-mono"
+                    rows={3}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 จะถูกส่งเป็น: <code className="text-blue-400">Authorization: Bearer [token]</code>
+                  </p>
+                </div>
+              )}
+
+              {/* Basic Auth */}
+              {currentTest.auth.type === 'basic' && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Username</label>
+                    <input
+                      type="text"
+                      value={currentTest.auth.username || ''}
+                      onChange={(e) =>
+                        setCurrentTest({
+                          ...currentTest,
+                          auth: { ...currentTest.auth, username: e.target.value },
+                        })
+                      }
+                      placeholder="username"
+                      className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Password</label>
+                    <input
+                      type="password"
+                      value={currentTest.auth.password || ''}
+                      onChange={(e) =>
+                        setCurrentTest({
+                          ...currentTest,
+                          auth: { ...currentTest.auth, password: e.target.value },
+                        })
+                      }
+                      placeholder="password"
+                      className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    💡 จะถูกส่งเป็น: <code className="text-blue-400">Authorization: Basic [base64]</code>
+                  </p>
+                </div>
+              )}
+
+              {/* API Key */}
+              {currentTest.auth.type === 'apikey' && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Key Name</label>
+                    <input
+                      type="text"
+                      value={currentTest.auth.apiKeyName || ''}
+                      onChange={(e) =>
+                        setCurrentTest({
+                          ...currentTest,
+                          auth: { ...currentTest.auth, apiKeyName: e.target.value },
+                        })
+                      }
+                      placeholder="X-API-Key"
+                      className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">API Key Value</label>
+                    <input
+                      type="text"
+                      value={currentTest.auth.apiKey || ''}
+                      onChange={(e) =>
+                        setCurrentTest({
+                          ...currentTest,
+                          auth: { ...currentTest.auth, apiKey: e.target.value },
+                        })
+                      }
+                      placeholder="your-api-key-here"
+                      className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Add To</label>
+                    <select
+                      value={currentTest.auth.apiKeyIn || 'header'}
+                      onChange={(e) =>
+                        setCurrentTest({
+                          ...currentTest,
+                          auth: {
+                            ...currentTest.auth,
+                            apiKeyIn: e.target.value as 'header' | 'query',
+                          },
+                        })
+                      }
+                      className="w-full bg-dark-bg border border-dark-border rounded px-3 py-2 text-sm"
+                    >
+                      <option value="header">Header</option>
+                      <option value="query">Query Parameter</option>
+                    </select>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    💡 จะถูกส่งเป็น:{' '}
+                    <code className="text-blue-400">
+                      {currentTest.auth.apiKeyIn === 'header'
+                        ? `${currentTest.auth.apiKeyName || 'X-API-Key'}: [value]`
+                        : `?${currentTest.auth.apiKeyName || 'api_key'}=[value]`}
+                    </code>
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Headers */}
@@ -550,37 +738,120 @@ export default function APITester({ onBack }: Props) {
 
           {/* Response */}
           {(currentTest.response200 || currentTest.responseError) && (
-            <div className="space-y-3">
+            <div className="space-y-3 border-t border-dark-border pt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold">ผลลัพธ์</h3>
-                {currentTest.statusCode && (
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-bold ${
-                      currentTest.statusCode >= 200 && currentTest.statusCode < 300
-                        ? 'bg-green-600'
-                        : 'bg-red-600'
-                    }`}
-                  >
-                    {currentTest.statusCode} {currentTest.responseTime}ms
-                  </span>
-                )}
+                <h3 className="text-sm font-bold">📥 Response</h3>
+                <div className="flex items-center gap-2">
+                  {currentTest.responseSize !== undefined && (
+                    <span className="text-xs text-gray-400">
+                      {(currentTest.responseSize / 1024).toFixed(2)} KB
+                    </span>
+                  )}
+                  {currentTest.statusCode && (
+                    <span
+                      className={`px-2 py-1 rounded text-xs font-bold ${
+                        currentTest.statusCode >= 200 && currentTest.statusCode < 300
+                          ? 'bg-green-600'
+                          : currentTest.statusCode >= 400
+                          ? 'bg-red-600'
+                          : 'bg-yellow-600'
+                      }`}
+                    >
+                      {currentTest.statusCode} {currentTest.responseTime}ms
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {currentTest.response200 && (
-                <div>
-                  <p className="text-xs text-green-400 mb-1">Response 200 (Success)</p>
-                  <pre className="bg-dark-bg border border-green-500/30 rounded p-3 text-xs overflow-x-auto">
-                    {JSON.stringify(currentTest.response200, null, 2)}
-                  </pre>
-                </div>
+              {/* Response Tabs */}
+              <div className="flex gap-2 border-b border-dark-border">
+                <button
+                  onClick={() => setResponseTab('body')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    responseTab === 'body'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                >
+                  Body
+                </button>
+                <button
+                  onClick={() => setResponseTab('headers')}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    responseTab === 'headers'
+                      ? 'border-blue-500 text-blue-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-300'
+                  }`}
+                >
+                  Headers {currentTest.responseHeaders && `(${Object.keys(currentTest.responseHeaders).length})`}
+                </button>
+              </div>
+
+              {/* Body Tab */}
+              {responseTab === 'body' && (
+                <>
+                  {currentTest.response200 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs text-green-400 font-bold">✓ Success Response</p>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(JSON.stringify(currentTest.response200, null, 2))
+                          }}
+                          className="text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          คัดลอก
+                        </button>
+                      </div>
+                      <pre className="bg-dark-bg border border-green-500/30 rounded p-3 text-xs overflow-x-auto max-h-96">
+                        {JSON.stringify(currentTest.response200, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {currentTest.responseError && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs text-red-400 font-bold">✗ Error Response</p>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(JSON.stringify(currentTest.responseError, null, 2))
+                          }}
+                          className="text-xs text-blue-400 hover:text-blue-300"
+                        >
+                          คัดลอก
+                        </button>
+                      </div>
+                      <pre className="bg-dark-bg border border-red-500/30 rounded p-3 text-xs overflow-x-auto max-h-96">
+                        {JSON.stringify(currentTest.responseError, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </>
               )}
 
-              {currentTest.responseError && (
+              {/* Headers Tab */}
+              {responseTab === 'headers' && currentTest.responseHeaders && (
                 <div>
-                  <p className="text-xs text-red-400 mb-1">Response Error</p>
-                  <pre className="bg-dark-bg border border-red-500/30 rounded p-3 text-xs overflow-x-auto">
-                    {JSON.stringify(currentTest.responseError, null, 2)}
-                  </pre>
+                  <p className="text-xs text-gray-400 mb-2 font-bold">Response Headers</p>
+                  <div className="bg-dark-bg border border-dark-border rounded overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-dark-hover">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-bold">Header Name</th>
+                          <th className="px-3 py-2 text-left font-bold">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(currentTest.responseHeaders).map(([key, value]) => (
+                          <tr key={key} className="border-t border-dark-border hover:bg-dark-hover">
+                            <td className="px-3 py-2 font-mono text-blue-400">{key}</td>
+                            <td className="px-3 py-2 font-mono text-gray-300">{value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -622,6 +893,7 @@ export default function APITester({ onBack }: Props) {
                 <th className="px-3 py-2 text-left border-b border-dark-border">Method</th>
                 <th className="px-3 py-2 text-left border-b border-dark-border">Endpoint</th>
                 <th className="px-3 py-2 text-left border-b border-dark-border">Description</th>
+                <th className="px-3 py-2 text-left border-b border-dark-border">Auth</th>
                 <th className="px-3 py-2 text-left border-b border-dark-border">Headers</th>
                 <th className="px-3 py-2 text-left border-b border-dark-border">Path Params</th>
                 <th className="px-3 py-2 text-left border-b border-dark-border">Query Params</th>
@@ -663,6 +935,27 @@ export default function APITester({ onBack }: Props) {
                   </td>
                   <td className="px-3 py-2 border-b border-dark-border text-xs text-gray-400">
                     {test.description || '-'}
+                  </td>
+                  <td className="px-3 py-2 border-b border-dark-border">
+                    {test.auth.type !== 'none' ? (
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-bold ${
+                          test.auth.type === 'bearer'
+                            ? 'bg-purple-600'
+                            : test.auth.type === 'basic'
+                            ? 'bg-orange-600'
+                            : 'bg-teal-600'
+                        }`}
+                      >
+                        {test.auth.type === 'bearer'
+                          ? '🔐 JWT'
+                          : test.auth.type === 'basic'
+                          ? '🔐 Basic'
+                          : '🔑 API Key'}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">-</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 border-b border-dark-border">
                     <details className="text-xs">
