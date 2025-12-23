@@ -6,7 +6,8 @@ import QueryBuilder from '@/components/QueryBuilder'
 import ResponseMapper from '@/components/ResponseMapper'
 import APIGenerator from '@/components/APIGenerator'
 import CSharpGenerator from '@/components/CSharpGenerator'
-import { Database, Code2, Zap, Settings } from 'lucide-react'
+import APITester from '@/components/APITester'
+import { Database, Code2, Zap, Settings, Play } from 'lucide-react'
 
 export type DatabaseConfig = {
   type: 'postgresql' | 'mysql' | 'mssql'
@@ -92,8 +93,9 @@ export default function Home() {
             { num: 1, label: 'เชื่อมต่อฐานข้อมูล', icon: Database },
             { num: 2, label: 'สร้าง Query', icon: Code2 },
             { num: 3, label: 'ออกแบบ Response', icon: Settings },
-            { num: 4, label: 'สร้าง API', icon: Zap },
+            { num: 4, label: 'เชื่อมต่อ Vue.js', icon: Zap },
             { num: 5, label: 'สร้าง C# Models', icon: Code2 },
+            { num: 6, label: 'ทดสอบ API', icon: Play },
           ].map((s) => (
             <button
               key={s.num}
@@ -131,6 +133,7 @@ export default function Home() {
             dbConfig={dbConfig}
             onNext={() => setStep(3)}
             onBack={() => setStep(1)}
+            onSchemaFetched={setSchema}
           />
         )}
         {step === 3 && (
@@ -159,6 +162,11 @@ export default function Home() {
             schema={schema}
             query={sqlQuery}
             onBack={() => setStep(2)}
+          />
+        )}
+        {step === 6 && (
+          <APITester
+            onBack={() => setStep(1)}
           />
         )}
       </main>

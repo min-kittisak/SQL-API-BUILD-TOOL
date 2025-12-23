@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, Trash2, Eye, AlertCircle, CheckCircle, ArrowLeft, ArrowRight, Settings2, ChevronDown, Search } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Plus, Trash2, Eye, AlertCircle, CheckCircle, ArrowLeft, ArrowRight, Settings2, ChevronDown, Search, Loader2 } from 'lucide-react'
 import type { DatabaseConfig, TableSchema, SQLQuery, JoinConfig } from '@/app/page'
 import Editor from '@monaco-editor/react'
 
@@ -26,6 +26,7 @@ type Props = {
   dbConfig: DatabaseConfig | null
   onNext: () => void
   onBack: () => void
+  onSchemaFetched: (schema: TableSchema[]) => void
 }
 
 const JOIN_TYPES = [
@@ -38,7 +39,7 @@ const JOIN_TYPES = [
   { value: 'FULL_NULL', label: 'Full Outer (NULL)', desc: 'แถวที่ไม่ตรงกันทั้งสองตาราง' },
 ] as const
 
-export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, onNext, onBack }: Props) {
+export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, onNext, onBack, onSchemaFetched }: Props) {
   const [selectedTable, setSelectedTable] = useState<string>('')
   const [validationResult, setValidationResult] = useState<{ success: boolean; message: string } | null>(null)
   const [validating, setValidating] = useState(false)
@@ -49,6 +50,33 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
   const [orderByRules, setOrderByRules] = useState<OrderByRule[]>([])
   const [limitValue, setLimitValue] = useState<number | undefined>(query.limit)
   const [searchTable, setSearchTable] = useState<string>('')
+  const [loadingSchema, setLoadingSchema] = useState(schema.length === 0)
+
+  // Load schema if not loaded yet
+  useEffect(() => {
+    if (schema.length === 0 && dbConfig) {
+      loadSchema()
+    }
+  }, [])
+
+  const loadSchema = async () => {
+    setLoadingSchema(true)
+    try {
+      const response = await fetch('/api/database/schema', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dbConfig),
+      })
+      const result = await response.json()
+      if (result.success) {
+        onSchemaFetched(result.schema)
+      }
+    } catch (error) {
+      console.error('Failed to load schema:', error)
+    } finally {
+      setLoadingSchema(false)
+    }
+  }
 
   // Filter and sort tables
   const filteredAndSortedTables = schema
@@ -298,16 +326,24 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
       <div className="w-80 bg-dark-panel border-r border-dark-border flex flex-col flex-shrink-0">
         <div className="p-4 border-b border-dark-border">
           <h3 className="text-lg font-bold mb-3">โครงสร้าง Database</h3>
-          <input
-            type="text"
-            value={searchTable}
-            onChange={(e) => setSearchTable(e.target.value)}
-            placeholder="ค้นหาตาราง..."
-            className="w-full bg-dark-bg border border-dark-border rounded-lg px-3 py-2 text-sm placeholder-gray-500"
-          />
+          {!loadingSchema && (
+            <input
+              type="text"
+              value={searchTable}
+              onChange={(e) => setSearchTable(e.target.value)}
+              placeholder="ค้นหาตาราง..."
+              className="w-full bg-dark-bg border border-dark-border rounded-lg px-3 py-2 text-sm placeholder-gray-500"
+            />
+          )}
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
-          {filteredAndSortedTables.length === 0 ? (
+          {loadingSchema ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <Loader2 className="w-12 h-12 animate-spin mb-4 text-blue-500" />
+              <p className="text-sm">กำลังโหลดโครงสร้างตาราง...</p>
+              <p className="text-xs text-gray-500 mt-1">กรุณารอสักครู่</p>
+            </div>
+          ) : filteredAndSortedTables.length === 0 ? (
             <div className="text-center text-gray-500 py-8">
               <p className="text-sm">ไม่พบตารางที่ตรงกับคำค้นหา</p>
             </div>

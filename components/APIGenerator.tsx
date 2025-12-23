@@ -20,110 +20,770 @@ type Props = {
 
 export default function APIGenerator({ query, mappingRules, dbConfig, apiConfig, onApiConfigChange, onBack, onNext }: Props) {
   const [copied, setCopied] = useState(false)
+  const [codeType, setCodeType] = useState<'composition' | 'options' | 'composable'>('composition')
 
-  const generateAPICode = (): string => {
-    const sqlQuery = buildSQL(query)
-    const transformCode = generateTransformFunction(mappingRules)
+  const generateVueCode = (): string => {
+    if (codeType === 'composition') {
+      return generateCompositionAPI()
+    } else if (codeType === 'options') {
+      return generateOptionsAPI()
+    } else {
+      return generateComposable()
+    }
+  }
 
-    const dbConnectionCode =
-      dbConfig?.type === 'postgresql'
-        ? `import { Client } from 'pg'
+  const generateCompositionAPI = (): string => {
+    const endpoint = apiConfig.path
+    const method = apiConfig.method
 
-const client = new Client({
-  host: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-})`
-        : dbConfig?.type === 'mysql'
-        ? `import mysql from 'mysql2/promise'
+    return `<template>
+  <div class="data-viewer">
+    <!-- Loading State -->
+    <div v-if="loading" class="loading">
+      <div class="spinner"></div>
+      <p>กำลังโหลดข้อมูล...</p>
+    </div>
 
-const connection = await mysql.createConnection({
-  host: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT || '3306'),
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-})`
-        : `import sql from 'mssql'
+    <!-- Error State -->
+    <div v-else-if="error" class="error">
+      <h3>เกิดข้อผิดพลาด</h3>
+      <p>{{ error }}</p>
+      <button @click="fetchData">ลองอีกครั้ง</button>
+    </div>
 
-await sql.connect({
-  server: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT || '1433'),
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  options: {
-    encrypt: false,
-    trustServerCertificate: true,
-  },
-})`
+    <!-- Data Display -->
+    <div v-else-if="data.length > 0" class="data-container">
+      <div class="header">
+        <h2>ข้อมูลทั้งหมด ({{ data.length }} รายการ)</h2>
+        <button @click="fetchData" class="refresh-btn">รีเฟรช</button>
+      </div>
 
-    const executeCode =
-      dbConfig?.type === 'postgresql'
-        ? `await client.connect()
-const result = await client.query(sql)
-const rawData = result.rows
-await client.end()`
-        : dbConfig?.type === 'mysql'
-        ? `const [rows] = await connection.query(sql)
-const rawData = rows as any[]
-await connection.end()`
-        : `const result = await sql.query(sql)
-const rawData = result.recordset
-await sql.close()`
+      <!-- Table View -->
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="column in columns" :key="column">{{ column }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(item, index) in data" :key="index">
+            <td v-for="column in columns" :key="column">
+              {{ getNestedValue(item, column) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
-    return `import { NextRequest, NextResponse } from 'next/server'
-${dbConfig?.type === 'postgresql' ? "import { Client } from 'pg'" : dbConfig?.type === 'mysql' ? "import mysql from 'mysql2/promise'" : "import sql from 'mssql'"}
+      <!-- JSON View -->
+      <details class="json-view">
+        <summary>ดู JSON แบบเต็ม</summary>
+        <pre>{{ JSON.stringify(data, null, 2) }}</pre>
+      </details>
+    </div>
 
-/**
- * Generated API Endpoint
- * Path: ${apiConfig.path}
- * Method: ${apiConfig.method}
- * 
- * Environment Variables Required:
- * - DB_HOST
- * - DB_PORT
- * - DB_NAME
- * - DB_USER
- * - DB_PASSWORD
- */
+    <!-- Empty State -->
+    <div v-else class="empty">
+      <p>ไม่พบข้อมูล</p>
+      <button @click="fetchData">โหลดข้อมูล</button>
+    </div>
+  </div>
+</template>
 
-${transformCode}
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
+import axios from 'axios'
 
-export async function ${apiConfig.method}(request: NextRequest) {
+// API Configuration
+const API_URL = '${endpoint}'
+const API_METHOD = '${method}'
+
+// State Management
+const data = ref<any[]>([])
+const loading = ref(false)
+const error = ref<string | null>(null)
+
+// Computed Properties
+const columns = computed(() => {
+  if (data.value.length === 0) return []
+  return extractColumns(data.value[0])
+})
+
+// Helper Functions
+function extractColumns(obj: any, prefix = ''): string[] {
+  const cols: string[] = []
+  for (const key in obj) {
+    const fullKey = prefix ? \`\${prefix}.\${key}\` : key
+    if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+      cols.push(...extractColumns(obj[key], fullKey))
+    } else {
+      cols.push(fullKey)
+    }
+  }
+  return cols
+}
+
+function getNestedValue(obj: any, path: string): any {
+  return path.split('.').reduce((current, key) => current?.[key], obj)
+}
+
+// API Call Function
+async function fetchData() {
+  loading.value = true
+  error.value = null
+
   try {
-    // SQL Query
-    const sql = \`${sqlQuery.trim()}\`
-
-    // Database Connection
-    ${dbConnectionCode}
-
-    // Execute Query
-    ${executeCode}
-
-    // Transform Data
-    const transformedData = transformData(rawData)
-
-    // Return Response
-    return NextResponse.json({
-      success: true,
-      data: transformedData,
-      count: transformedData.length,
+    const response = await axios({
+      method: API_METHOD,
+      url: API_URL,
+      ${method === 'POST' ? '// data: { /* your POST data here */ },' : ''}
+      headers: {
+        'Content-Type': 'application/json'
+      }
     })
-  } catch (error: any) {
-    console.error('API Error:', error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message,
-      },
-      { status: 500 }
-    )
+
+    if (response.data.success) {
+      data.value = response.data.data
+    } else {
+      throw new Error(response.data.error || 'Failed to fetch data')
+    }
+  } catch (err: any) {
+    error.value = err.response?.data?.error || err.message || 'Unknown error occurred'
+    console.error('API Error:', err)
+  } finally {
+    loading.value = false
   }
 }
+
+// Lifecycle Hook
+onMounted(() => {
+  fetchData()
+})
+</script>
+
+<style scoped>
+.data-viewer {
+  padding: 20px;
+  font-family: 'Noto Sans Thai Looped', sans-serif;
+}
+
+.loading, .error, .empty {
+  text-align: center;
+  padding: 40px;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error {
+  color: #e74c3c;
+}
+
+.error button, .empty button, .refresh-btn {
+  padding: 10px 20px;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.error button:hover, .empty button:hover, .refresh-btn:hover {
+  background: #2980b9;
+}
+
+.data-container {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.data-table th {
+  background: #3498db;
+  color: white;
+  font-weight: bold;
+}
+
+.data-table tr:hover {
+  background: #f5f5f5;
+}
+
+.json-view {
+  margin-top: 20px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  padding: 10px;
+}
+
+.json-view summary {
+  cursor: pointer;
+  font-weight: bold;
+  padding: 5px;
+}
+
+.json-view pre {
+  background: #2c3e50;
+  color: #ecf0f1;
+  padding: 15px;
+  border-radius: 5px;
+  overflow-x: auto;
+  margin-top: 10px;
+}
+</style>
 `
+  }
+
+  const generateOptionsAPI = (): string => {
+    const endpoint = apiConfig.path
+    const method = apiConfig.method
+
+    return `<template>
+  <div class="data-viewer">
+    <!-- Loading State -->
+    <div v-if="loading" class="loading">
+      <div class="spinner"></div>
+      <p>กำลังโหลดข้อมูล...</p>
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="error" class="error">
+      <h3>เกิดข้อผิดพลาด</h3>
+      <p>{{ error }}</p>
+      <button @click="fetchData">ลองอีกครั้ง</button>
+    </div>
+
+    <!-- Data Display -->
+    <div v-else-if="data.length > 0" class="data-container">
+      <div class="header">
+        <h2>ข้อมูลทั้งหมด ({{ data.length }} รายการ)</h2>
+        <button @click="fetchData" class="refresh-btn">รีเฟรช</button>
+      </div>
+
+      <!-- Table View -->
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="column in columns" :key="column">{{ column }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(item, index) in data" :key="index">
+            <td v-for="column in columns" :key="column">
+              {{ getNestedValue(item, column) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- JSON View -->
+      <details class="json-view">
+        <summary>ดู JSON แบบเต็ม</summary>
+        <pre>{{ JSON.stringify(data, null, 2) }}</pre>
+      </details>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else class="empty">
+      <p>ไม่พบข้อมูล</p>
+      <button @click="fetchData">โหลดข้อมูล</button>
+    </div>
+  </div>
+</template>
+
+<script lang="ts">
+import { defineComponent } from 'vue'
+import axios from 'axios'
+
+export default defineComponent({
+  name: 'DataViewer',
+  
+  data() {
+    return {
+      data: [] as any[],
+      loading: false,
+      error: null as string | null,
+      apiUrl: '${endpoint}',
+      apiMethod: '${method}'
+    }
+  },
+
+  computed: {
+    columns(): string[] {
+      if (this.data.length === 0) return []
+      return this.extractColumns(this.data[0])
+    }
+  },
+
+  mounted() {
+    this.fetchData()
+  },
+
+  methods: {
+    extractColumns(obj: any, prefix = ''): string[] {
+      const cols: string[] = []
+      for (const key in obj) {
+        const fullKey = prefix ? \`\${prefix}.\${key}\` : key
+        if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+          cols.push(...this.extractColumns(obj[key], fullKey))
+        } else {
+          cols.push(fullKey)
+        }
+      }
+      return cols
+    },
+
+    getNestedValue(obj: any, path: string): any {
+      return path.split('.').reduce((current, key) => current?.[key], obj)
+    },
+
+    async fetchData() {
+      this.loading = true
+      this.error = null
+
+      try {
+        const response = await axios({
+          method: this.apiMethod,
+          url: this.apiUrl,
+          ${method === 'POST' ? '// data: { /* your POST data here */ },' : ''}
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (response.data.success) {
+          this.data = response.data.data
+        } else {
+          throw new Error(response.data.error || 'Failed to fetch data')
+        }
+      } catch (err: any) {
+        this.error = err.response?.data?.error || err.message || 'Unknown error occurred'
+        console.error('API Error:', err)
+      } finally {
+        this.loading = false
+      }
+    }
+  }
+})
+</script>
+
+<style scoped>
+.data-viewer {
+  padding: 20px;
+  font-family: 'Noto Sans Thai Looped', sans-serif;
+}
+
+.loading, .error, .empty {
+  text-align: center;
+  padding: 40px;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error {
+  color: #e74c3c;
+}
+
+.error button, .empty button, .refresh-btn {
+  padding: 10px 20px;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.error button:hover, .empty button:hover, .refresh-btn:hover {
+  background: #2980b9;
+}
+
+.data-container {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.data-table th {
+  background: #3498db;
+  color: white;
+  font-weight: bold;
+}
+
+.data-table tr:hover {
+  background: #f5f5f5;
+}
+
+.json-view {
+  margin-top: 20px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  padding: 10px;
+}
+
+.json-view summary {
+  cursor: pointer;
+  font-weight: bold;
+  padding: 5px;
+}
+
+.json-view pre {
+  background: #2c3e50;
+  color: #ecf0f1;
+  padding: 15px;
+  border-radius: 5px;
+  overflow-x: auto;
+  margin-top: 10px;
+}
+</style>
+`
+  }
+
+  const generateComposable = (): string => {
+    const endpoint = apiConfig.path
+    const method = apiConfig.method
+
+    return `// composables/useDataFetcher.ts
+import { ref, computed } from 'vue'
+import axios from 'axios'
+
+export function useDataFetcher(apiUrl: string, apiMethod: 'GET' | 'POST' = 'GET') {
+  // State
+  const data = ref<any[]>([])
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+
+  // Computed
+  const columns = computed(() => {
+    if (data.value.length === 0) return []
+    return extractColumns(data.value[0])
+  })
+
+  const hasData = computed(() => data.value.length > 0)
+  const isEmpty = computed(() => !loading.value && data.value.length === 0)
+
+  // Helper Functions
+  function extractColumns(obj: any, prefix = ''): string[] {
+    const cols: string[] = []
+    for (const key in obj) {
+      const fullKey = prefix ? \`\${prefix}.\${key}\` : key
+      if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+        cols.push(...extractColumns(obj[key], fullKey))
+      } else {
+        cols.push(fullKey)
+      }
+    }
+    return cols
+  }
+
+  function getNestedValue(obj: any, path: string): any {
+    return path.split('.').reduce((current, key) => current?.[key], obj)
+  }
+
+  // API Call
+  async function fetchData(params?: any) {
+    loading.value = true
+    error.value = null
+
+    try {
+      const response = await axios({
+        method: apiMethod,
+        url: apiUrl,
+        ${method === 'POST' ? 'data: params,' : 'params: params,'}
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.data.success) {
+        data.value = response.data.data
+      } else {
+        throw new Error(response.data.error || 'Failed to fetch data')
+      }
+    } catch (err: any) {
+      error.value = err.response?.data?.error || err.message || 'Unknown error occurred'
+      console.error('API Error:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // Refresh function
+  const refresh = () => fetchData()
+
+  return {
+    // State
+    data,
+    loading,
+    error,
+    
+    // Computed
+    columns,
+    hasData,
+    isEmpty,
+    
+    // Methods
+    fetchData,
+    refresh,
+    getNestedValue
+  }
+}
+
+// ==========================================
+// Component Usage Example
+// ==========================================
+
+// DataViewer.vue
+<template>
+  <div class="data-viewer">
+    <!-- Loading State -->
+    <div v-if="loading" class="loading">
+      <div class="spinner"></div>
+      <p>กำลังโหลดข้อมูล...</p>
+    </div>
+
+    <!-- Error State -->
+    <div v-else-if="error" class="error">
+      <h3>เกิดข้อผิดพลาด</h3>
+      <p>{{ error }}</p>
+      <button @click="refresh">ลองอีกครั้ง</button>
+    </div>
+
+    <!-- Data Display -->
+    <div v-else-if="hasData" class="data-container">
+      <div class="header">
+        <h2>ข้อมูลทั้งหมด ({{ data.length }} รายการ)</h2>
+        <button @click="refresh" class="refresh-btn">รีเฟรช</button>
+      </div>
+
+      <!-- Table View -->
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="column in columns" :key="column">{{ column }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(item, index) in data" :key="index">
+            <td v-for="column in columns" :key="column">
+              {{ getNestedValue(item, column) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- JSON View -->
+      <details class="json-view">
+        <summary>ดู JSON แบบเต็ม</summary>
+        <pre>{{ JSON.stringify(data, null, 2) }}</pre>
+      </details>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else class="empty">
+      <p>ไม่พบข้อมูล</p>
+      <button @click="fetchData">โหลดข้อมูล</button>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { useDataFetcher } from '@/composables/useDataFetcher'
+
+// Use the composable
+const {
+  data,
+  loading,
+  error,
+  columns,
+  hasData,
+  isEmpty,
+  fetchData,
+  refresh,
+  getNestedValue
+} = useDataFetcher('${endpoint}', '${method}')
+
+// Auto-fetch on mount
+onMounted(() => {
+  fetchData()
+})
+</script>
+
+<style scoped>
+.data-viewer {
+  padding: 20px;
+  font-family: 'Noto Sans Thai Looped', sans-serif;
+}
+
+.loading, .error, .empty {
+  text-align: center;
+  padding: 40px;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error {
+  color: #e74c3c;
+}
+
+.error button, .empty button, .refresh-btn {
+  padding: 10px 20px;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.error button:hover, .empty button:hover, .refresh-btn:hover {
+  background: #2980b9;
+}
+
+.data-container {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.data-table th {
+  background: #3498db;
+  color: white;
+  font-weight: bold;
+}
+
+.data-table tr:hover {
+  background: #f5f5f5;
+}
+
+.json-view {
+  margin-top: 20px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  padding: 10px;
+}
+
+.json-view summary {
+  cursor: pointer;
+  font-weight: bold;
+  padding: 5px;
+}
+
+.json-view pre {
+  background: #2c3e50;
+  color: #ecf0f1;
+  padding: 15px;
+  border-radius: 5px;
+  overflow-x: auto;
+  margin-top: 10px;
+}
+</style>
+`
+  }
+
+  const generateAPICode = (): string => {
+    return generateVueCode()
   }
 
   const buildSQL = (query: SQLQuery): string => {
@@ -176,39 +836,20 @@ export async function ${apiConfig.method}(request: NextRequest) {
     return sql
   }
 
-  const generateTransformFunction = (rules: MappingRule[]): string => {
-    return `// Data Transformation Function
-function transformData(rawData: any[]): any[] {
-  return rawData.map((row) => {
-    const result: any = {}
-
-${rules
-  .map((rule) => {
-    const accessCode = `row['${rule.sqlColumn}'] || row['${rule.sqlColumn.split('.').pop()}']`
-    const convertCode = generateTypeConversion(accessCode, rule.type)
-    const setCode = generateSetNestedValue('result', rule.jsonPath, convertCode)
-    return `    ${setCode}`
-  })
-  .join('\n')}
-
-    return result
-  })
-}
-
-function setNestedValue(obj: any, path: string, value: any) {
-  const keys = path.split('.')
-  let current = obj
-
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i]
-    if (!current[key]) {
-      current[key] = {}
-    }
-    current = current[key]
+  const generatePackageJson = (): string => {
+    return `{
+  "dependencies": {
+    "axios": "^1.6.2",
+    "vue": "^3.3.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.2"
   }
-
-  current[keys[keys.length - 1]] = value
 }
+
+// ติดตั้งโดยใช้คำสั่ง:
+// npm install axios
 `
   }
 
@@ -229,23 +870,6 @@ function setNestedValue(obj: any, path: string, value: any) {
     }
   }
 
-  const generateSetNestedValue = (objName: string, path: string, value: string): string => {
-    if (!path.includes('.')) {
-      return `${objName}['${path}'] = ${value}`
-    }
-    return `setNestedValue(${objName}, '${path}', ${value})`
-  }
-
-  const generateEnvFile = (): string => {
-    return `# Database Configuration
-DB_HOST=${dbConfig?.host || 'localhost'}
-DB_PORT=${dbConfig?.port || '5432'}
-DB_NAME=${dbConfig?.database || 'mydatabase'}
-DB_USER=${dbConfig?.user || 'user'}
-DB_PASSWORD=${dbConfig?.password || 'password'}
-`
-  }
-
   const handleCopy = () => {
     navigator.clipboard.writeText(generateAPICode())
     setCopied(true)
@@ -254,22 +878,25 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
 
   const handleDownload = () => {
     const code = generateAPICode()
-    const blob = new Blob([code], { type: 'text/typescript' })
+    const blob = new Blob([code], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `route.ts`
+    const fileName = codeType === 'composable' 
+      ? 'useDataFetcher.ts' 
+      : 'DataViewer.vue'
+    a.download = fileName
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const handleDownloadEnv = () => {
-    const env = generateEnvFile()
-    const blob = new Blob([env], { type: 'text/plain' })
+  const handleDownloadPackage = () => {
+    const pkg = generatePackageJson()
+    const blob = new Blob([pkg], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `.env.local`
+    a.download = 'package.json'
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -282,9 +909,9 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
           <div className="flex flex-col">
             <div className="flex items-center gap-3 mb-1">
               <Code2 className="w-6 h-6 text-green-500" />
-              <h2 className="text-xl font-bold">สร้าง API พร้อมใช้งาน</h2>
+              <h2 className="text-xl font-bold">เชื่อมต่อ API ด้วย Vue.js</h2>
             </div>
-            <p className="text-sm text-gray-400 ml-9">Next.js API route ที่สมบูรณ์พร้อมการเชื่อมต่อฐานข้อมูลและการแปลงผลลัพธ์</p>
+            <p className="text-sm text-gray-400 ml-9">Vue Component พร้อมใช้งานทุกรูปแบบ (Composition API, Options API, Composable)</p>
           </div>
           <div className="flex gap-2">
             <button
@@ -299,14 +926,14 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
               className="flex items-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm"
             >
               <Download className="w-4 h-4" />
-              ดาวน์โหลด route.ts
+              ดาวน์โหลด {codeType === 'composable' ? 'Composable' : 'Component'}
             </button>
             <button
-              onClick={handleDownloadEnv}
+              onClick={handleDownloadPackage}
               className="flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm"
             >
               <Download className="w-4 h-4" />
-              ดาวน์โหลด .env.local
+              ดาวน์โหลด package.json
             </button>
           </div>
         </div>
@@ -316,29 +943,41 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
       <div className="bg-dark-panel border-b border-dark-border p-3">
         <div className="flex items-center gap-4">
           <Settings2 className="w-5 h-5 text-gray-400" />
-          <div className="flex items-center gap-4 flex-1">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">HTTP Method</label>
-              <select
-                value={apiConfig.method}
-                onChange={(e) => onApiConfigChange({ ...apiConfig, method: e.target.value as 'GET' | 'POST' })}
-                className="bg-dark-bg border border-dark-border rounded px-2 py-1.5 text-sm"
-              >
-                <option value="GET">GET</option>
-                <option value="POST">POST</option>
-              </select>
-            </div>
+          
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">รูปแบบโค้ด Vue</label>
+            <select
+              value={codeType}
+              onChange={(e) => setCodeType(e.target.value as 'composition' | 'options' | 'composable')}
+              className="bg-dark-bg border border-dark-border rounded px-3 py-1.5 text-sm"
+            >
+              <option value="composition">Composition API (setup script)</option>
+              <option value="options">Options API</option>
+              <option value="composable">Composable (ใช้ซ้ำได้)</option>
+            </select>
+          </div>
 
-            <div className="flex-1">
-              <label className="block text-xs text-gray-400 mb-1">เส้นทาง API Endpoint</label>
-              <input
-                type="text"
-                value={apiConfig.path}
-                onChange={(e) => onApiConfigChange({ ...apiConfig, path: e.target.value })}
-                placeholder="/api/v1/data"
-                className="w-full bg-dark-bg border border-dark-border rounded px-2 py-1.5 text-sm"
-              />
-            </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">HTTP Method</label>
+            <select
+              value={apiConfig.method}
+              onChange={(e) => onApiConfigChange({ ...apiConfig, method: e.target.value as 'GET' | 'POST' })}
+              className="bg-dark-bg border border-dark-border rounded px-2 py-1.5 text-sm"
+            >
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </div>
+
+          <div className="flex-1">
+            <label className="block text-xs text-gray-400 mb-1">เส้นทาง API Endpoint</label>
+            <input
+              type="text"
+              value={apiConfig.path}
+              onChange={(e) => onApiConfigChange({ ...apiConfig, path: e.target.value })}
+              placeholder="/api/v1/data"
+              className="w-full bg-dark-bg border border-dark-border rounded px-2 py-1.5 text-sm"
+            />
           </div>
         </div>
       </div>
@@ -346,7 +985,11 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
       {/* Code Preview - Takes most of the space */}
       <div className="flex-1 min-h-0 flex flex-col bg-dark-bg">
         <div className="bg-dark-hover px-4 py-2 border-b border-dark-border flex-shrink-0">
-          <h3 className="font-bold text-sm">โค้ด API ที่สร้าง</h3>
+          <h3 className="font-bold text-sm">
+            {codeType === 'composition' && 'Vue Composition API Component'}
+            {codeType === 'options' && 'Vue Options API Component'}
+            {codeType === 'composable' && 'Reusable Composable + Component Example'}
+          </h3>
         </div>
         <div className="flex-1 min-h-0">
           <Editor
@@ -368,17 +1011,39 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
       </div>
 
       {/* Instructions - Compact at bottom */}
-      <div className="bg-blue-900/20 border-t border-blue-500/30 p-2 flex-shrink-0">
+      <div className="bg-green-900/20 border-t border-green-500/30 p-2 flex-shrink-0">
         <details className="cursor-pointer">
-          <summary className="font-bold text-blue-300 text-sm">📋 คำแนะนำการติดตั้ง (คลิกเพื่อขยาย)</summary>
-          <ol className="text-xs text-blue-200 space-y-1 list-decimal list-inside mt-2 ml-2">
-            <li>สร้างไฟล์: <code className="bg-blue-900/40 px-1 py-0.5 rounded text-xs">app{apiConfig.path}/route.ts</code></li>
-            <li>คัดลอกโค้ดที่สร้างไปวางในไฟล์</li>
-            <li>ดาวน์โหลด .env.local ไปไว้ที่โฟลเดอร์ root ของโปรเจค</li>
-            <li>ติดตั้ง: <code className="bg-blue-900/40 px-1 py-0.5 rounded text-xs">npm install {dbConfig?.type === 'postgresql' ? 'pg @types/pg' : dbConfig?.type === 'mysql' ? 'mysql2' : 'mssql'}</code></li>
-            <li>รัน: <code className="bg-blue-900/40 px-1 py-0.5 rounded text-xs">npm run dev</code></li>
-            <li>ทดสอบ: <code className="bg-blue-900/40 px-1 py-0.5 rounded text-xs">curl http://localhost:3000{apiConfig.path}</code></li>
-          </ol>
+          <summary className="font-bold text-green-300 text-sm">📋 คำแนะนำการใช้งาน (คลิกเพื่อขยาย)</summary>
+          <div className="text-xs text-green-200 space-y-2 mt-2 ml-2">
+            {codeType === 'composition' && (
+              <ol className="list-decimal list-inside space-y-1">
+                <li>ติดตั้ง: <code className="bg-green-900/40 px-1 py-0.5 rounded">npm install axios</code></li>
+                <li>สร้างไฟล์: <code className="bg-green-900/40 px-1 py-0.5 rounded">src/components/DataViewer.vue</code></li>
+                <li>คัดลอกโค้ดไปวาง</li>
+                <li>เรียกใช้: <code className="bg-green-900/40 px-1 py-0.5 rounded">&lt;DataViewer /&gt;</code> ใน App.vue</li>
+                <li>Component จะ auto-fetch ข้อมูลเมื่อ mount</li>
+              </ol>
+            )}
+            {codeType === 'options' && (
+              <ol className="list-decimal list-inside space-y-1">
+                <li>ติดตั้ง: <code className="bg-green-900/40 px-1 py-0.5 rounded">npm install axios</code></li>
+                <li>สร้างไฟล์: <code className="bg-green-900/40 px-1 py-0.5 rounded">src/components/DataViewer.vue</code></li>
+                <li>คัดลอกโค้ดไปวาง</li>
+                <li>เรียกใช้: <code className="bg-green-900/40 px-1 py-0.5 rounded">&lt;DataViewer /&gt;</code> ใน App.vue</li>
+                <li>Component จะ auto-fetch ข้อมูลเมื่อ mount</li>
+              </ol>
+            )}
+            {codeType === 'composable' && (
+              <ol className="list-decimal list-inside space-y-1">
+                <li>ติดตั้ง: <code className="bg-green-900/40 px-1 py-0.5 rounded">npm install axios</code></li>
+                <li>สร้างไฟล์ composable: <code className="bg-green-900/40 px-1 py-0.5 rounded">src/composables/useDataFetcher.ts</code></li>
+                <li>สร้างไฟล์ component: <code className="bg-green-900/40 px-1 py-0.5 rounded">src/components/DataViewer.vue</code></li>
+                <li>แยกโค้ดไปวางตามไฟล์ (มีเส้นแบ่งใน code)</li>
+                <li>ใช้ซ้ำได้หลาย component: <code className="bg-green-900/40 px-1 py-0.5 rounded">useDataFetcher('/api/endpoint')</code></li>
+              </ol>
+            )}
+            <p className="mt-2 text-yellow-300">✨ Features: Auto-fetch, Loading state, Error handling, Table display, JSON viewer, Refresh button</p>
+          </div>
         </details>
       </div>
 
@@ -392,7 +1057,7 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3 text-green-400">
             <CheckCircle className="w-5 h-5" />
-            <span className="font-medium">API พร้อมใช้งานแล้ว!</span>
+            <span className="font-medium">Vue Component พร้อมใช้งานแล้ว!</span>
           </div>
           {onNext && (
             <button
