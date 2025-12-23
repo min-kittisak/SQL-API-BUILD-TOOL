@@ -44,7 +44,23 @@ export default function CSharpGenerator({ schema, query, onBack }: Props) {
     return match ? parseInt(match[1]) : null
   }
 
-  const generateCSharpModel = (table: TableSchema): string => {
+  const generateCSharpModel = (): string => {
+    const selectedTables = schema.filter((table) => query.tables.includes(table.name))
+    
+    if (selectedTables.length === 0) {
+      return '// กรุณาเลือกตารางก่อน'
+    }
+
+    // If there are JOINs, create a combined model
+    if (query.joins.length > 0) {
+      return generateCombinedModel(selectedTables)
+    }
+
+    // If no JOINs, create separate models
+    return selectedTables.map((table) => generateSingleTableModel(table)).join('\n\n' + '='.repeat(80) + '\n\n')
+  }
+
+  const generateSingleTableModel = (table: TableSchema): string => {
     const className = `${toPascalCase(table.name)}Model`
     const properties = table.columns.map((col) => {
       const propName = toPascalCase(col.name)
@@ -67,7 +83,7 @@ export default function CSharpGenerator({ schema, query, onBack }: Props) {
       const attributesStr = attributes.length > 0 ? attributes.join('\n') + '\n' : ''
       
       return `        /// <summary>
-        /// ${col.name}
+        /// ${col.name} (${table.name})
         /// </summary>
 ${attributesStr}        public ${csharpType} ${propName} { get; set; }`
     }).join('\n\n')
@@ -86,14 +102,69 @@ ${properties}
 }`
   }
 
-  const generateAllModels = (): string => {
-    const selectedTables = schema.filter((table) => query.tables.includes(table.name))
-    
-    if (selectedTables.length === 0) {
-      return '// กรุณาเลือกตารางก่อน'
-    }
+  const generateCombinedModel = (tables: TableSchema[]): string => {
+    // Create combined model name from all tables
+    const modelName = tables.map((t) => toPascalCase(t.name)).join('With')
+    const className = `${modelName}Model`
 
-    return selectedTables.map((table) => generateCSharpModel(table)).join('\n\n' + '='.repeat(80) + '\n\n')
+    // Collect all columns from selected columns only (if specified)
+    const selectedColumns = query.columns.length > 0 ? query.columns : []
+    const allProperties: string[] = []
+
+    tables.forEach((table) => {
+      table.columns.forEach((col) => {
+        const fullColumnName = `${table.name}.${col.name}`
+        
+        // If columns are specified, only include selected ones
+        if (selectedColumns.length > 0 && !selectedColumns.includes(fullColumnName)) {
+          return
+        }
+
+        const propName = toPascalCase(`${table.name}_${col.name}`)
+        const csharpType = mapSqlTypeToCSharp(col.type)
+        const stringLength = getStringLength(col.type)
+        const isRequired = !col.nullable
+
+        let attributes = []
+        
+        // Add Required attribute for non-nullable fields
+        if (isRequired && !csharpType.includes('?')) {
+          attributes.push('        [Required]')
+        }
+        
+        // Add StringLength for string types
+        if (csharpType === 'string' && stringLength) {
+          attributes.push(`        [StringLength(${stringLength})]`)
+        }
+
+        const attributesStr = attributes.length > 0 ? attributes.join('\n') + '\n' : ''
+        
+        allProperties.push(`        /// <summary>
+        /// ${col.name} (จากตาราง ${table.name})
+        /// </summary>
+${attributesStr}        public ${csharpType} ${propName} { get; set; }`)
+      })
+    })
+
+    const propertiesStr = allProperties.join('\n\n')
+    const tableNames = tables.map((t) => t.name).join(', ')
+
+    return `using System.ComponentModel.DataAnnotations;
+
+namespace ${namespace}
+{
+    /// <summary>
+    /// ViewModel รวมจาก JOIN ของตาราง: ${tableNames}
+    /// </summary>
+    public class ${className}
+    {
+${propertiesStr}
+    }
+}`
+  }
+
+  const generateAllModels = (): string => {
+    return generateCSharpModel()
   }
 
   const handleCopy = () => {
@@ -107,17 +178,20 @@ ${properties}
     
     if (selectedTables.length === 0) return
 
-    if (selectedTables.length === 1) {
-      // Download single file
-      const table = selectedTables[0]
-      const code = generateCSharpModel(table)
-      const fileName = `${toPascalCase(table.name)}Model.cs`
-      downloadFile(code, fileName)
+    const code = generateAllModels()
+    
+    // Generate filename based on whether there are JOINs
+    let fileName: string
+    if (query.joins.length > 0) {
+      const modelName = selectedTables.map((t) => toPascalCase(t.name)).join('With')
+      fileName = `${modelName}Model.cs`
+    } else if (selectedTables.length === 1) {
+      fileName = `${toPascalCase(selectedTables[0].name)}Model.cs`
     } else {
-      // Download as ZIP (simplified - download all in one file)
-      const code = generateAllModels()
-      downloadFile(code, 'ViewModels.cs')
+      fileName = 'ViewModels.cs'
     }
+    
+    downloadFile(code, fileName)
   }
 
   const downloadFile = (content: string, fileName: string) => {
@@ -179,18 +253,38 @@ ${properties}
 
       {/* Selected Tables Info */}
       <div className="bg-dark-panel border-b border-dark-border px-4 py-3 flex-shrink-0">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-gray-400">ตารางที่เลือก:</span>
-          {query.tables.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {query.tables.map((table) => (
-                <span key={table} className="px-2 py-1 bg-blue-900/30 border border-blue-500 rounded text-blue-300">
-                  {table} → {toPascalCase(table)}Model.cs
-                </span>
-              ))}
+        <div className="flex flex-col gap-2 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400">ตารางที่เลือก:</span>
+            {query.tables.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {query.tables.map((table) => (
+                  <span key={table} className="px-2 py-1 bg-blue-900/30 border border-blue-500 rounded text-blue-300">
+                    {table}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-gray-500 italic">ยังไม่ได้เลือกตาราง</span>
+            )}
+          </div>
+          
+          {query.joins.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400">โหมด:</span>
+              <span className="px-2 py-1 bg-green-900/30 border border-green-500 rounded text-green-300">
+                ✓ มี JOIN - สร้าง Model รวม ({query.tables.map((t) => toPascalCase(t)).join('With')}Model.cs)
+              </span>
             </div>
-          ) : (
-            <span className="text-gray-500 italic">ยังไม่ได้เลือกตาราง</span>
+          )}
+          
+          {query.joins.length === 0 && query.tables.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400">โหมด:</span>
+              <span className="px-2 py-1 bg-purple-900/30 border border-purple-500 rounded text-purple-300">
+                ไม่มี JOIN - สร้างแยกตารางละไฟล์
+              </span>
+            </div>
           )}
         </div>
       </div>
