@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Client as PgClient } from 'pg'
 import mysql from 'mysql2/promise'
-import sql from 'mssql'
+import sql, { pool } from 'mssql'
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
         },
       })
       await sql.query('SELECT 1')
-      await sql.close()
+      await pool.close()
     }
 
     return NextResponse.json({ success: true })

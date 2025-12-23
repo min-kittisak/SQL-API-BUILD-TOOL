@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       data = rows as any[]
       await connection.end()
     } else if (type === 'mssql') {
-      await sql.connect({
+      const pool = await sql.connect({
         server: host,
         port,
         database,
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
       })
       const result = await sql.query(sqlQuery)
       data = result.recordset
-      await sql.close()
+      await pool.close()
     }
 
     return NextResponse.json({ success: true, data })
