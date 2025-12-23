@@ -14,6 +14,7 @@ type Props = {
 export default function DatabaseConnection({ config, onConfigChange, onSchemaFetched, onNext }: Props) {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [loadingSchema, setLoadingSchema] = useState(false)
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -62,6 +63,7 @@ export default function DatabaseConnection({ config, onConfigChange, onSchemaFet
       if (result.success) {
         setTestResult({ success: true, message: 'เชื่อมต่อสำเร็จ!' })
         // Fetch schema
+        setLoadingSchema(true)
         const schemaResponse = await fetch('/api/database/schema', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -71,6 +73,7 @@ export default function DatabaseConnection({ config, onConfigChange, onSchemaFet
         if (schemaData.success) {
           onSchemaFetched(schemaData.schema)
         }
+        setLoadingSchema(false)
       } else {
         setTestResult({ success: false, message: result.error || 'การเชื่อมต่อล้มเหลว' })
       }
@@ -193,16 +196,26 @@ export default function DatabaseConnection({ config, onConfigChange, onSchemaFet
           {/* Test Result */}
           {testResult && (
             <div
-              className={`mt-6 p-4 rounded-lg flex items-center gap-3 ${
+              className={`mt-6 p-4 rounded-lg flex items-start gap-3 ${
                 testResult.success ? 'bg-green-900/20 border border-green-500' : 'bg-red-900/20 border border-red-500'
               }`}
             >
               {testResult.success ? (
-                <CheckCircle className="w-5 h-5 text-green-500" />
+                <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
               ) : (
-                <XCircle className="w-5 h-5 text-red-500" />
+                <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
               )}
-              <span className={testResult.success ? 'text-green-300' : 'text-red-300'}>{testResult.message}</span>
+              <div className="flex-1">
+                <span className={`${testResult.success ? 'text-green-300' : 'text-red-300'} font-medium`}>
+                  {testResult.message}
+                </span>
+                {loadingSchema && (
+                  <div className="flex items-center gap-2 mt-2 text-yellow-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">กำลังโหลดโครงสร้างตาราง...</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

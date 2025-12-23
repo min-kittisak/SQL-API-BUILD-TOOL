@@ -5,6 +5,7 @@ import DatabaseConnection from '@/components/DatabaseConnection'
 import QueryBuilder from '@/components/QueryBuilder'
 import ResponseMapper from '@/components/ResponseMapper'
 import APIGenerator from '@/components/APIGenerator'
+import CSharpGenerator from '@/components/CSharpGenerator'
 import { Database, Code2, Zap, Settings } from 'lucide-react'
 
 export type DatabaseConfig = {
@@ -86,12 +87,13 @@ export default function Home() {
 
       {/* Progress Steps */}
       <div className="bg-dark-panel border-b border-dark-border px-6 py-3 flex-shrink-0">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4">
           {[
             { num: 1, label: 'เชื่อมต่อฐานข้อมูล', icon: Database },
             { num: 2, label: 'สร้าง Query', icon: Code2 },
             { num: 3, label: 'ออกแบบ Response', icon: Settings },
             { num: 4, label: 'สร้าง API', icon: Zap },
+            { num: 5, label: 'สร้าง C# Models', icon: Code2 },
           ].map((s) => (
             <button
               key={s.num}
@@ -149,6 +151,14 @@ export default function Home() {
             apiConfig={apiConfig}
             onApiConfigChange={setApiConfig}
             onBack={() => setStep(3)}
+            onNext={() => setStep(5)}
+          />
+        )}
+        {step === 5 && (
+          <CSharpGenerator
+            schema={schema}
+            query={sqlQuery}
+            onBack={() => setStep(2)}
           />
         )}
       </main>

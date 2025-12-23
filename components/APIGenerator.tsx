@@ -15,9 +15,10 @@ type Props = {
   }
   onApiConfigChange: (config: { method: 'GET' | 'POST'; path: string }) => void
   onBack: () => void
+  onNext?: () => void
 }
 
-export default function APIGenerator({ query, mappingRules, dbConfig, apiConfig, onApiConfigChange, onBack }: Props) {
+export default function APIGenerator({ query, mappingRules, dbConfig, apiConfig, onApiConfigChange, onBack, onNext }: Props) {
   const [copied, setCopied] = useState(false)
 
   const generateAPICode = (): string => {
@@ -388,9 +389,20 @@ DB_PASSWORD=${dbConfig?.password || 'password'}
           กลับไป Mapper
         </button>
 
-        <div className="flex items-center gap-3 text-green-400">
-          <CheckCircle className="w-5 h-5" />
-          <span className="font-medium">API พร้อมใช้งานแล้ว!</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 text-green-400">
+            <CheckCircle className="w-5 h-5" />
+            <span className="font-medium">API พร้อมใช้งานแล้ว!</span>
+          </div>
+          {onNext && (
+            <button
+              onClick={onNext}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg"
+            >
+              ไปที่ C# Generator
+              <Code2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>
