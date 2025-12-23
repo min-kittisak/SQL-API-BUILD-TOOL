@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Play, Plus, Trash2, Download, Copy, CheckCircle, ArrowLeft } from 'lucide-react'
+import { Play, Plus, Trash2, Download, Copy, CheckCircle, ArrowLeft, Upload } from 'lucide-react'
 import axios from 'axios'
 
 type HeaderParam = {
@@ -74,6 +74,13 @@ export default function APITester({ onBack }: Props) {
   const [testing, setTesting] = useState(false)
   const [copied, setCopied] = useState(false)
   const [responseTab, setResponseTab] = useState<'body' | 'headers'>('body')
+  
+  // Login API State
+  const [loginEndpoint, setLoginEndpoint] = useState('https://localhost:7140/auth/login')
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
+  const [loginMessage, setLoginMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Header Management
   const addHeader = () => {
@@ -154,6 +161,56 @@ export default function APITester({ onBack }: Props) {
       ...currentTest,
       queryParams: currentTest.queryParams.filter((q) => q.id !== id),
     })
+  }
+
+  // Login API Function
+  const handleLogin = async () => {
+    if (!loginEmail || !loginPassword) {
+      setLoginMessage({ type: 'error', text: 'กรุณากรอก Email และ Password' })
+      return
+    }
+
+    setLoggingIn(true)
+    setLoginMessage(null)
+
+    try {
+      const response = await axios({
+        method: 'POST',
+        url: loginEndpoint,
+        data: {
+          email: loginEmail,
+          password: loginPassword,
+        },
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        validateStatus: () => true,
+      })
+
+      if (response.status === 200 && response.data.token) {
+        // Auto-fill JWT Token
+        setCurrentTest({
+          ...currentTest,
+          auth: {
+            type: 'bearer',
+            token: response.data.token,
+          },
+        })
+        setLoginMessage({ type: 'success', text: `✓ Login สำเร็จ! Token ถูกใส่อัตโนมัติแล้ว` })
+      } else {
+        setLoginMessage({ 
+          type: 'error', 
+          text: `✗ Login ไม่สำเร็จ: ${response.data.message || 'Invalid credentials'}` 
+        })
+      }
+    } catch (error: any) {
+      setLoginMessage({ 
+        type: 'error', 
+        text: `✗ เกิดข้อผิดพลาด: ${error.message}` 
+      })
+    } finally {
+      setLoggingIn(false)
+    }
   }
 
   // Build Final Endpoint
@@ -331,6 +388,47 @@ export default function APITester({ onBack }: Props) {
     URL.revokeObjectURL(url)
   }
 
+  const importTests = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'application/json,.json'
+    input.onchange = async (e: any) => {
+      const file = e.target.files[0]
+      if (!file) return
+
+      try {
+        const text = await file.text()
+        const importedTests = JSON.parse(text)
+
+        // Validate structure
+        if (!Array.isArray(importedTests)) {
+          alert('❌ ไฟล์ JSON ไม่ถูกต้อง: ต้องเป็น Array')
+          return
+        }
+
+        // Validate each test
+        const validTests = importedTests.filter((test) => {
+          return test.id && test.name && test.method && test.endpoint
+        })
+
+        if (validTests.length === 0) {
+          alert('❌ ไม่พบข้อมูลที่ถูกต้องในไฟล์')
+          return
+        }
+
+        // Merge with existing tests (avoid duplicates by id)
+        const existingIds = new Set(tests.map((t) => t.id))
+        const newTests = validTests.filter((t) => !existingIds.has(t.id))
+        
+        setTests([...tests, ...newTests])
+        alert(`✓ นำเข้าสำเร็จ ${newTests.length} รายการ (ข้ามรายการซ้ำ ${validTests.length - newTests.length} รายการ)`)
+      } catch (error: any) {
+        alert(`❌ ไม่สามารถอ่านไฟล์ได้: ${error.message}`)
+      }
+    }
+    input.click()
+  }
+
   const copyAsTable = () => {
     const tableData = tests
       .map(
@@ -398,6 +496,81 @@ export default function APITester({ onBack }: Props) {
 
         {/* Request Builder - Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Quick Login for JWT */}
+          <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/30 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+              <h3 className="text-sm font-bold text-purple-300">🔐 Quick Login (Auto JWT)</h3>
+            </div>
+            
+            <div className="space-y-2">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Login Endpoint</label>
+                <input
+                  type="text"
+                  value={loginEndpoint}
+                  onChange={(e) => setLoginEndpoint(e.target.value)}
+                  placeholder="https://localhost:7140/auth/login"
+                  className="w-full bg-dark-bg border border-dark-border rounded px-3 py-1.5 text-sm font-mono"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="test@ditruz.com"
+                    className="w-full bg-dark-bg border border-dark-border rounded px-3 py-1.5 text-sm"
+                    onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Password</label>
+                  <input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="password"
+                    className="w-full bg-dark-bg border border-dark-border rounded px-3 py-1.5 text-sm"
+                    onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleLogin}
+                disabled={loggingIn}
+                className="w-full py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded font-medium text-sm flex items-center justify-center gap-2"
+              >
+                {loggingIn ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    กำลัง Login...
+                  </>
+                ) : (
+                  <>
+                    🔓 Login & Get JWT Token
+                  </>
+                )}
+              </button>
+
+              {loginMessage && (
+                <div
+                  className={`text-xs p-2 rounded ${
+                    loginMessage.type === 'success'
+                      ? 'bg-green-900/30 text-green-300 border border-green-500/30'
+                      : 'bg-red-900/30 text-red-300 border border-red-500/30'
+                  }`}
+                >
+                  {loginMessage.text}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Method & Endpoint */}
           <div>
             <label className="block text-sm font-bold mb-2">Request</label>
@@ -866,6 +1039,13 @@ export default function APITester({ onBack }: Props) {
           <div className="flex items-center justify-between">
             <h3 className="font-bold">รายการ API ที่บันทึก ({tests.length})</h3>
             <div className="flex gap-2">
+              <button
+                onClick={importTests}
+                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 rounded text-sm flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                นำเข้า JSON
+              </button>
               <button
                 onClick={copyAsTable}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm flex items-center gap-2"

@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'SQL to API Builder',
+  title: 'Utility API Builder for SQL',
   description: 'Build complex SQL queries and transform them into production-ready API endpoints',
 }
 

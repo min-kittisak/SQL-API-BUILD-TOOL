@@ -296,10 +296,18 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
     setQueryResults([])
 
     try {
+      // Build the complete query with WHERE, ORDER BY, LIMIT
+      const completeQuery = {
+        ...query,
+        where: whereConditions.length > 0 ? generateWhereClause() : query.where,
+        orderBy: orderByRules.length > 0 ? generateOrderByClause() : query.orderBy,
+        limit: limitValue || query.limit
+      }
+
       const response = await fetch('/api/database/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: dbConfig, query, limit: 10 }),
+        body: JSON.stringify({ config: dbConfig, query: completeQuery }),
       })
 
       const result = await response.json()
@@ -381,14 +389,6 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
         <div className="bg-dark-panel border-b border-dark-border p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold">ตารางที่เลือก</h3>
-            <button
-              onClick={addJoin}
-              disabled={query.tables.length < 2}
-              className="flex items-center gap-2 px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed rounded text-sm"
-            >
-              <Plus className="w-4 h-4" />
-              เพิ่ม Join
-            </button>
           </div>
           <div className="flex flex-wrap gap-2">
             {query.tables.map((table) => (
@@ -440,6 +440,132 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
             })}
           </div>
         </div>
+
+        {/* Join Configuration */}
+        {query.tables.length >= 2 && (
+          <div className="bg-dark-panel border-b border-dark-border p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold">การตั้งค่า Join (เชื่อมโยงตาราง)</h3>
+              <button
+                onClick={addJoin}
+                className="flex items-center gap-2 px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                เพิ่ม Join
+              </button>
+            </div>
+            {query.joins.length > 0 && (
+              <div className="space-y-3">
+                {query.joins.map((join) => {
+                  const leftTable = schema.find((t) => t.name === join.leftTable)
+                  const rightTable = schema.find((t) => t.name === join.rightTable)
+
+                  return (
+                    <div key={join.id} className="bg-dark-bg rounded-lg border border-dark-border p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-blue-400">Join #{query.joins.indexOf(join) + 1}</span>
+                        <button onClick={() => removeJoin(join.id)} className="text-red-400 hover:text-red-300">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-5 gap-3 items-center">
+                        {/* Left Table */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">ตารางซ้าย</label>
+                          <select
+                            value={join.leftTable}
+                            onChange={(e) => updateJoin(join.id, { leftTable: e.target.value })}
+                            className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
+                          >
+                            {query.tables.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Left Column */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">คอลัมน์ซ้าย</label>
+                          <select
+                            value={join.leftColumn}
+                            onChange={(e) => updateJoin(join.id, { leftColumn: e.target.value })}
+                            className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
+                          >
+                            {leftTable?.columns.map((col) => (
+                              <option key={col.name} value={`${join.leftTable}.${col.name}`}>
+                                {col.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Join Type */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">ประเภท Join</label>
+                          <select
+                            value={join.joinType}
+                            onChange={(e) => updateJoin(join.id, { joinType: e.target.value as any })}
+                            className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
+                          >
+                            <option value="INNER">INNER JOIN</option>
+                            <option value="LEFT">LEFT JOIN</option>
+                            <option value="RIGHT">RIGHT JOIN</option>
+                            <option value="FULL">FULL OUTER</option>
+                            <option value="LEFT_NULL">LEFT (NULL only)</option>
+                            <option value="RIGHT_NULL">RIGHT (NULL only)</option>
+                            <option value="FULL_NULL">FULL (NULL only)</option>
+                          </select>
+                        </div>
+
+                        {/* Right Table */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">ตารางขวา</label>
+                          <select
+                            value={join.rightTable}
+                            onChange={(e) => updateJoin(join.id, { rightTable: e.target.value })}
+                            className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
+                          >
+                            {query.tables.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Right Column */}
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">คอลัมน์ขวา</label>
+                          <select
+                            value={join.rightColumn}
+                            onChange={(e) => updateJoin(join.id, { rightColumn: e.target.value })}
+                            className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
+                          >
+                            {rightTable?.columns.map((col) => (
+                              <option key={col.name} value={`${join.rightTable}.${col.name}`}>
+                                {col.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Join Visualization */}
+                      <div className="mt-3 p-2 bg-dark-panel rounded border border-blue-500/30">
+                        <p className="text-xs font-mono text-blue-300">
+                          {join.leftTable}.{join.leftColumn.split('.').pop()} = {join.rightTable}.{join.rightColumn.split('.').pop()}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Advanced Query Options */}
         <div className="bg-dark-panel border-b border-dark-border p-3">
@@ -643,119 +769,6 @@ export default function QueryBuilder({ schema, query, onQueryChange, dbConfig, o
             </div>
           )}
         </div>
-
-        {/* Join Configuration */}
-        {query.joins.length > 0 && (
-          <div className="bg-dark-panel border-b border-dark-border p-4">
-            <h3 className="font-bold mb-3">การตั้งค่า Join (เชื่อมโยงตาราง)</h3>
-            <div className="space-y-3">
-              {query.joins.map((join) => {
-                const leftTable = schema.find((t) => t.name === join.leftTable)
-                const rightTable = schema.find((t) => t.name === join.rightTable)
-
-                return (
-                  <div key={join.id} className="bg-dark-bg rounded-lg border border-dark-border p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-blue-400">Join #{query.joins.indexOf(join) + 1}</span>
-                      <button onClick={() => removeJoin(join.id)} className="text-red-400 hover:text-red-300">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-5 gap-3 items-center">
-                      {/* Left Table */}
-                      <div>
-                        <label className="block text-xs text-gray-400 mb-1">ตารางซ้าย</label>
-                        <select
-                          value={join.leftTable}
-                          onChange={(e) => updateJoin(join.id, { leftTable: e.target.value })}
-                          className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
-                        >
-                          {query.tables.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Left Column */}
-                      <div>
-                        <label className="block text-xs text-gray-400 mb-1">Column</label>
-                        <select
-                          value={join.leftColumn}
-                          onChange={(e) => updateJoin(join.id, { leftColumn: e.target.value })}
-                          className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
-                        >
-                          <option value="">เลือก...</option>
-                          {leftTable?.columns.map((col) => (
-                            <option key={col.name} value={col.name}>
-                              {col.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Join Type */}
-                      <div>
-                        <label className="block text-xs text-gray-400 mb-1">ประเภท Join</label>
-                        <select
-                          value={join.joinType}
-                          onChange={(e) => updateJoin(join.id, { joinType: e.target.value as any })}
-                          className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
-                        >
-                          {JOIN_TYPES.map((jt) => (
-                            <option key={jt.value} value={jt.value} title={jt.desc}>
-                              {jt.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Right Table */}
-                      <div>
-                        <label className="block text-xs text-gray-400 mb-1">ตารางขวา</label>
-                        <select
-                          value={join.rightTable}
-                          onChange={(e) => updateJoin(join.id, { rightTable: e.target.value })}
-                          className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
-                        >
-                          {query.tables.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Right Column */}
-                      <div>
-                        <label className="block text-xs text-gray-400 mb-1">Column</label>
-                        <select
-                          value={join.rightColumn}
-                          onChange={(e) => updateJoin(join.id, { rightColumn: e.target.value })}
-                          className="w-full bg-dark-panel border border-dark-border rounded px-2 py-1 text-sm"
-                        >
-                          <option value="">Select...</option>
-                          {rightTable?.columns.map((col) => (
-                            <option key={col.name} value={col.name}>
-                              {col.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Join Type Description */}
-                    <div className="mt-2 text-xs text-gray-500">
-                      {JOIN_TYPES.find((jt) => jt.value === join.joinType)?.desc}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
 
         {/* SQL Preview & Results */}
         <div className="bg-dark-bg p-4">

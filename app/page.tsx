@@ -73,7 +73,7 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <header className="bg-dark-panel border-b border-dark-border px-6 py-4 flex-shrink-0">
+      <header className="bg-dark-panel border-b border-dark-border px-6 py-4 flex-shrink-0 relative z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Zap className="w-8 h-8 text-blue-500" />
@@ -87,14 +87,11 @@ export default function Home() {
       </header>
 
       {/* Progress Steps */}
-      <div className="bg-dark-panel border-b border-dark-border px-6 py-3 flex-shrink-0">
+      <div className="bg-dark-panel border-b border-dark-border px-6 py-3 flex-shrink-0 relative z-10">
         <div className="flex items-center gap-4">
           {[
             { num: 1, label: 'เชื่อมต่อฐานข้อมูล', icon: Database },
             { num: 2, label: 'สร้าง Query', icon: Code2 },
-            { num: 3, label: 'ออกแบบ Response', icon: Settings },
-            { num: 4, label: 'เชื่อมต่อ Vue.js', icon: Zap },
-            { num: 5, label: 'สร้าง C# Models', icon: Code2 },
             { num: 6, label: 'ทดสอบ API', icon: Play },
           ].map((s) => (
             <button

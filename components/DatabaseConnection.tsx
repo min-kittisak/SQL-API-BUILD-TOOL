@@ -79,8 +79,8 @@ export default function DatabaseConnection({ config, onConfigChange, onSchemaFet
   }
 
   return (
-    <div className="h-full flex items-center justify-center p-8">
-      <div className="w-full max-w-3xl">
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-4xl mx-auto p-8">
         <div className="bg-dark-panel rounded-xl border border-dark-border p-8">
           <div className="flex items-center gap-3 mb-6">
             <Database className="w-8 h-8 text-blue-500" />
